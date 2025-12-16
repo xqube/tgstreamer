@@ -7,5 +7,5 @@ dist/
 *.log
 *.tsbuildinfo
 .env
-mtcute-master/
 logs/
+mtcute/
