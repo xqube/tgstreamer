@@ -8,7 +8,7 @@
         "dev": "tsx watch ./src/main.ts",
         "build": "tsc",
         "start": "LOG_LEVEL=debug node dist/main.js",
-        "_postinstall_disabled": "node patch-mtcute.mjs",
+        "postinstall": "node patch-mtcute.mjs",
         "pm2": "npm run build && pm2 start ecosystem.config.json",
         "pm2:restart": "npm run build && pm2 restart tgflix",
         "pm2:stop": "pm2 stop tgflix",
