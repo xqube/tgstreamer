@@ -130,7 +130,7 @@ async function handleStreamRequest(
             fileSize: fileSize,
             partSize: PART_SIZE_KB,
             abortSignal: abortController.signal,
-            // highWaterMark: env.MTCUTE_HIGH_WATER_MARK,  // undefined = mtcute default
+            highWaterMark: env.MTCUTE_HIGH_WATER_MARK,  // undefined = mtcute default
         })
 
         // Create a Web TransformStream for slicing (skip + limit)
