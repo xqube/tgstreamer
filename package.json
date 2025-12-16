@@ -1,0 +1,30 @@
+{
+    "name": "tgstreamer",
+    "license": "MIT",
+    "version": "0.0.1",
+    "type": "module",
+    "packageManager": "npm@10.9.3",
+    "scripts": {
+        "dev": "tsx watch ./src/main.ts",
+        "build": "tsc",
+        "start": "LOG_LEVEL=debug node dist/main.js",
+        "postinstall": "node patch-mtcute.mjs",
+        "pm2": "npm run build && pm2 start ecosystem.config.json",
+        "pm2:restart": "npm run build && pm2 restart tgflix",
+        "pm2:stop": "pm2 stop tgflix",
+        "pm2:logs": "pm2 logs tgflix"
+    },
+    "dependencies": {
+        "@mtcute/dispatcher": "^0.27.2",
+        "@mtcute/markdown-parser": "^0.27.2",
+        "@mtcute/node": "^0.27.2",
+        "dotenv": "^17.2.3",
+        "winston": "^3.19.0",
+        "zod": "^4.1.13"
+    },
+    "devDependencies": {
+        "@types/node": "^25.0.1",
+        "tsx": "^4.21.0",
+        "typescript": "^5.9.3"
+    }
+}
