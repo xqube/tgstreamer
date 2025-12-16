@@ -23,7 +23,8 @@ try {
   const bufferDeclReplacement = `const buffer = {};
   let bufferBytes = 0;
   const maxBufferBytes = ${MAX_BUFFER_SIZE};
-  const bufferCv = new ConditionVariable();`
+  // Helper: wait with timeout (for backpressure)
+  const waitForBuffer = () => new Promise(r => setTimeout(r, 50));`
 
   if (content.includes(bufferDeclPattern) && !content.includes('bufferBytes')) {
     content = content.replace(bufferDeclPattern, bufferDeclReplacement)
@@ -32,7 +33,7 @@ try {
   }
 
   // ============================================
-  // PATCH 2: Wait for buffer space before downloading
+  // PATCH 2: Wait for buffer space before downloading (polling approach)
   // ============================================
   // Add buffer size check at the start of downloadChunk
   const downloadChunkStart = `const downloadChunk = async (chunk = nextWorkerChunkIdx++) => {
@@ -46,9 +47,9 @@ try {
     if (ended) {
       return;
     }
-    // Wait if buffer is too full (backpressure)
+    // Wait if buffer is too full (backpressure via polling)
     while (bufferBytes > maxBufferBytes && !ended) {
-      await bufferCv.wait();
+      await waitForBuffer();
     }
     if (ended) return;`
 
@@ -72,17 +73,16 @@ try {
   }
 
   // ============================================
-  // PATCH 4: Reduce buffer size when chunk is consumed + notify waiters
+  // PATCH 4: Reduce buffer size when chunk is consumed
   // ============================================
   const bufferConsumePattern = 'const buf = buffer[nextChunkIdx];\n      delete buffer[nextChunkIdx];'
   const bufferConsumeReplacement = `const buf = buffer[nextChunkIdx];
       delete buffer[nextChunkIdx];
-      bufferBytes -= buf.length;
-      bufferCv.notify();`
+      bufferBytes -= buf.length;`
 
   if (content.includes(bufferConsumePattern) && !content.includes('bufferBytes -= buf.length')) {
     content = content.replace(bufferConsumePattern, bufferConsumeReplacement)
-    console.log('✅ Patch 4: Reduce buffer size on consume + notify')
+    console.log('✅ Patch 4: Reduce buffer size on consume')
     patchCount++
   }
 
@@ -105,7 +105,6 @@ try {
       delete buffer[key];
     }
     bufferBytes = 0;
-    bufferCv.notify();
     nextChunkCv.notify();
   });`
 
