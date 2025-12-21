@@ -95,6 +95,16 @@ async function handleStreamRequest(
             res.writeHead(200, headers)
         }
 
+        // Flush headers immediately to prevent buffering delays
+        res.flushHeaders()
+
+        // Handle HEAD request - return headers only, no body
+        if (req.method === 'HEAD') {
+            decrementStreamCount(token, clientIP)
+            res.end()
+            return
+        }
+
         // Alignment for Telegram API
         const isLargeFile = fileSize > LARGE_FILE_THRESHOLD
         const ALIGN = isLargeFile ? ALIGN_LARGE_FILE : ALIGN_SMALL_FILE
@@ -108,10 +118,14 @@ async function handleStreamRequest(
         let skipped = 0
         let written = 0
 
+        // Stall timeout - kill connection if client stops reading but doesn't disconnect
+        let stallTimeout: ReturnType<typeof setTimeout> | null = null
+
         // Cleanup function
         const cleanup = (reason: string) => {
             if (cleanedUp) return
             cleanedUp = true
+            if (stallTimeout) clearTimeout(stallTimeout)
             decrementStreamCount(token, clientIP)
             abortController.abort()
             const mem = process.memoryUsage()
@@ -167,9 +181,17 @@ async function handleStreamRequest(
         })
 
         // Pipe: Web ReadableStream -> TransformStream -> Response (as Web WritableStream)
-        // Convert Node.js response to Web WritableStream
+        // Note: HTTP response buffer is managed by Node.js internally, not configurable via toWeb()
         const webWritable = Writable.toWeb(res as any)
         
+        // Set stall timeout - 2 minutes of no progress triggers cleanup
+        stallTimeout = setTimeout(() => {
+            if (!cleanedUp && written < chunkSize) {
+                cleanup('stall timeout')
+                res.destroy()
+            }
+        }, 120000)
+
         webStream
             .pipeThrough(sliceTransform)
             .pipeTo(webWritable, { signal: abortController.signal })
@@ -221,6 +243,11 @@ export function startStreamServer(tg: TelegramClient): http.Server {
         res.writeHead(404, { 'Content-Type': 'text/plain' })
         res.end('Not found')
     })
+
+    // HTTP server timeouts for connection management
+    server.setTimeout(300000)        // 5 min overall request timeout
+    server.keepAliveTimeout = 60000  // 60s keep-alive timeout
+    server.headersTimeout = 30000    // 30s to receive request headers
 
     server.listen(env.PORT, '0.0.0.0', () => {
         streamLogger.info(`Server listening on 0.0.0.0:${env.PORT}`)

@@ -9,7 +9,7 @@ export const ALIGN_SMALL_FILE = 4 * 1024         // 4KB alignment for small file
 export const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  // 10MB threshold
 
 // Download settings
-export const PART_SIZE_KB = 512                  // Download part size in KB
+export const PART_SIZE_KB = 1024                 // Download part size in KB (matches ALIGN_LARGE_FILE)
 
 // MIME type mappings
 export const MIME_TYPES: Record<string, string> = {
