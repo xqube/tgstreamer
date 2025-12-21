@@ -121,13 +121,13 @@ try {
   // ============================================
   // Change parallel workers to single sequential worker
   const parallelPattern = 'length: Math.min(poolSize * (isSmall ? 1 : REQUESTS_PER_CONNECTION), numChunks)'
-  const sequentialReplacement = 'length: 2 // PATCHED: Sequential download - single worker'
+  const sequentialReplacement = 'length: 1 // PATCHED: Sequential download - single worker'
 
   if (content.includes(parallelPattern)) {
     content = content.replace(parallelPattern, sequentialReplacement)
     console.log('✅ Patch 6: Forced sequential downloads (1 worker)')
     patchCount++
-  } else if (content.includes('length: 2 // PATCHED')) {
+  } else if (content.includes('length: 1 // PATCHED')) {
     console.log('⏭️  Patch 6: Sequential download already applied')
   }
 
