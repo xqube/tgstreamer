@@ -115,12 +115,11 @@ ${sizeStr}🎭 Type: \`${mediaInfo.mimeType}\`
 🔗 **Stream URL (VLC/Browser):**
 \`${streamUrl}\`
 
-
+⬇️ **Download URL:**
+\`${downloadUrl}\`
 
 📺 For VLC: Media → Open Network Stream`
     )
 }
 
 //removed below lines which was on 118 and 119 coz it wasnt needed, previous commit did't work as expected
-// ⬇️ **Download URL:**
-// \`${downloadUrl}\`
