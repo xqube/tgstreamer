@@ -115,7 +115,7 @@ ${sizeStr}🎭 Type: \`${mediaInfo.mimeType}\`
 🔗 **Stream URL (VLC/Browser):**
 \`${streamUrl}\`
 
-⬇️ **Download URL:**
+⬇️ **Resumable Download URL:**
 \`${downloadUrl}\`
 
 📺 For VLC: Media → Open Network Stream`
