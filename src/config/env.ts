@@ -16,7 +16,6 @@ const r = z.object({
     MAX_TOTAL_STREAMS: z.coerce.number().default(4),       // Global limit
     MAX_USERS: z.coerce.number().default(1),               // For reference
     MAX_FILE_ENTRIES: z.coerce.number().default(50),
-    MTCUTE_HIGH_WATER_MARK: z.coerce.number().optional(),  // undefined = mtcute default
     // Comma-separated list of allowed Telegram user IDs (empty = allow all)
     ALLOWED_USERS: z.string().default('').transform(val => 
         val ? val.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id)) : []

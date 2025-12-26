@@ -1,9 +1,9 @@
 import http from 'node:http'
-import { Writable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import type { TelegramClient } from '@mtcute/node'
 
 import { env } from '../config/env.js'
-import { ALIGN_LARGE_FILE, ALIGN_SMALL_FILE, LARGE_FILE_THRESHOLD, PART_SIZE_KB } from '../config/constants.js'
+import { ALIGN_LARGE_FILE, ALIGN_SMALL_FILE, LARGE_FILE_THRESHOLD } from '../config/constants.js'
 import { streamLogger } from '../utils/logger.js'
 import { getFileEntry } from './utils/file-store.js'
 import { getMimeType } from './utils/mime.js'
@@ -27,7 +27,7 @@ function getClientIP(req: http.IncomingMessage): string {
 }
 
 /**
- * Handle streaming/download request
+ * Handle streaming/download request using downloadAsIterable API
  */
 async function handleStreamRequest(
     req: http.IncomingMessage, 
@@ -105,7 +105,7 @@ async function handleStreamRequest(
             return
         }
 
-        // Alignment for Telegram API
+        // Alignment for Telegram API - offset must be aligned
         const isLargeFile = fileSize > LARGE_FILE_THRESHOLD
         const ALIGN = isLargeFile ? ALIGN_LARGE_FILE : ALIGN_SMALL_FILE
         const alignedStart = Math.floor(start / ALIGN) * ALIGN
@@ -120,12 +120,13 @@ async function handleStreamRequest(
 
         // Stall timeout - kill connection if client stops reading but doesn't disconnect
         let stallTimeout: ReturnType<typeof setTimeout> | null = null
+        let lastProgress = Date.now()
 
         // Cleanup function
         const cleanup = (reason: string) => {
             if (cleanedUp) return
             cleanedUp = true
-            if (stallTimeout) clearTimeout(stallTimeout)
+            if (stallTimeout) clearInterval(stallTimeout)
             decrementStreamCount(token, clientIP)
             abortController.abort()
             const mem = process.memoryUsage()
@@ -137,71 +138,91 @@ async function handleStreamRequest(
         }
 
         req.on('close', () => cleanup('client disconnect'))
-
-        // Get the Web ReadableStream from mtcute
-        const webStream = tg.downloadAsStream(fileId, {
-            offset: alignedStart,
-            fileSize: fileSize,
-            partSize: PART_SIZE_KB,
-            abortSignal: abortController.signal,
-            highWaterMark: env.MTCUTE_HIGH_WATER_MARK,  // undefined = mtcute default
+        res.on('error', (err) => {
+            streamLogger.warn('Response error', { error: err.message })
+            cleanup('response error')
         })
 
-        // Create a Web TransformStream for slicing (skip + limit)
-        const sliceTransform = new TransformStream<Uint8Array, Uint8Array>({
-            transform(chunk, controller) {
+        // Create readable stream from downloadAsIterable
+        // Do NOT pass fileSize - mtcute's determinePartSize() throws "File is too large" for files >2GB
+        // Do NOT pass limit - mtcute requires limit to equal fileSize or be a factor of 1MB
+        // Use partSize: 512 (512KB) for optimal video streaming throughput
+        // We let it stream from offset and abort when we have enough bytes
+        // highWaterMark: 1 means we only buffer one chunk at a time for backpressure
+        const readable = Readable.from(
+            tg.downloadAsIterable(fileId, {
+                offset: alignedStart,
+                partSize: 512,  // 512KB chunks for faster streaming
+                abortSignal: abortController.signal,
+            }),
+            { highWaterMark: 1, objectMode: true }
+        )
+
+        // Transform stream for slicing (handles alignment skip + byte limit)
+        const sliceTransform = new Transform({
+            transform(chunk: Buffer, encoding, callback) {
                 bytesStreamed += chunk.length
+                lastProgress = Date.now()
                 
-                // Skip alignment bytes
+                // Skip alignment bytes at the start
                 if (skipped < skipBytes) {
                     const toSkip = Math.min(skipBytes - skipped, chunk.length)
                     skipped += toSkip
-                    chunk = chunk.subarray(toSkip)
-                    if (chunk.length === 0) return
+                    chunk = chunk.subarray(toSkip) as Buffer
+                    if (chunk.length === 0) {
+                        callback()
+                        return
+                    }
                 }
                 
                 // Limit to requested size
                 const remaining = chunkSize - written
                 if (remaining <= 0) {
-                    controller.terminate()
+                    this.push(null) // End the stream
+                    callback()
                     return
                 }
                 
                 if (chunk.length > remaining) {
-                    chunk = chunk.subarray(0, remaining)
+                    chunk = chunk.subarray(0, remaining) as Buffer
                 }
                 
                 written += chunk.length
-                controller.enqueue(chunk)
+                this.push(chunk)
                 
                 if (written >= chunkSize) {
-                    controller.terminate()
+                    this.push(null) // End the stream
+                    cleanup('stream complete')  // Abort download early - we have enough bytes
                 }
+                callback()
             }
         })
 
-        // Pipe: Web ReadableStream -> TransformStream -> Response (as Web WritableStream)
-        // Note: HTTP response buffer is managed by Node.js internally, not configurable via toWeb()
-        const webWritable = Writable.toWeb(res as any)
-        
-        // Set stall timeout - 2 minutes of no progress triggers cleanup
-        stallTimeout = setTimeout(() => {
-            if (!cleanedUp && written < chunkSize) {
+        // Set stall check interval - 2 minutes of no progress triggers cleanup
+        stallTimeout = setInterval(() => {
+            if (!cleanedUp && Date.now() - lastProgress > 120000 && written < chunkSize) {
                 cleanup('stall timeout')
                 res.destroy()
             }
-        }, 120000)
+        }, 30000)  // Check every 30 seconds
 
-        webStream
-            .pipeThrough(sliceTransform)
-            .pipeTo(webWritable, { signal: abortController.signal })
-            .then(() => cleanup('stream complete'))
-            .catch((err) => {
-                if (!abortController.signal.aborted) {
-                    streamLogger.warn('Stream error', { error: err.message, bytesStreamed })
-                }
-                cleanup('stream error')
-            })
+        // Pipe: Readable (chunks) -> Transform (slice) -> HTTP Response
+        readable
+            .pipe(sliceTransform)
+            .pipe(res)
+
+        // Handle stream events
+        sliceTransform.on('end', () => cleanup('stream complete'))
+        readable.on('error', (err) => {
+            if (!abortController.signal.aborted) {
+                streamLogger.warn('Stream error', { error: err.message, bytesStreamed })
+            }
+            cleanup('stream error')
+        })
+        sliceTransform.on('error', (err) => {
+            streamLogger.warn('Transform error', { error: err.message, bytesStreamed })
+            cleanup('transform error')
+        })
 
     } catch (error) {
         // Decrement counters on error
