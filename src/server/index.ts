@@ -154,6 +154,13 @@ async function handleStreamRequest(
                 offset: alignedStart,
                 partSize: 512,  // 512KB chunks for faster streaming
                 abortSignal: abortController.signal,
+                // Throttle: wait for HTTP response to drain before downloading more
+                // Called multiple times simultaneously since downloads are parallelized
+                throttle: async () => {
+                    if (res.writableNeedDrain) {
+                        await new Promise<void>(resolve => res.once('drain', resolve))
+                    }
+                }
             }),
             { highWaterMark: 1, objectMode: true }
         )
