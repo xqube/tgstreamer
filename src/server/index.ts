@@ -152,7 +152,7 @@ async function handleStreamRequest(
         const readable = Readable.from(
             tg.downloadAsIterable(fileId, {
                 offset: alignedStart,
-                partSize: 512,  // 512KB chunks for faster streaming
+                partSize: 1024,  // 1MB chunks for faster streaming
                 abortSignal: abortController.signal,
                 // Throttle: wait for HTTP response to drain before downloading more
                 // Called multiple times simultaneously since downloads are parallelized
